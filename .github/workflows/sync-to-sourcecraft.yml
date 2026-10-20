@@ -1,0 +1,34 @@
+# Переходный период: каждый push в GitHub повторяется в SourceCraft (vela/<имя репозитория>).
+# Без --force: если в SourceCraft ветку уже изменили отдельно, синхронизация упадёт, а не затрёт изменения.
+# Удаление веток не синхронизируется. Ставится скриптом tools/enable-sync.sh, удаляется после переезда.
+name: Sync to SourceCraft
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: sourcecraft-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Push to SourceCraft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SC_TOKEN: ${{ secrets.SOURCECRAFT_TOKEN }}
+          SC_ORG: vela
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]_' '[:lower:]-' | sed 's/^-*//; s/-*$//')"
+          gh_auth="Authorization: Basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          sc_auth="Authorization: Basic $(printf 'token:%s' "$SC_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$gh_auth" clone --mirror --quiet "https://github.com/$GITHUB_REPOSITORY.git" repo.git
+          cd repo.git
+          git -c http.extraheader="$sc_auth" push "https://git.sourcecraft.dev/$SC_ORG/$slug.git" \
+            'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
